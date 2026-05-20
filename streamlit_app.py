@@ -1,151 +1,174 @@
 import streamlit as st
 import pandas as pd
-import math
-from pathlib import Path
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
+from sklearn.preprocessing import StandardScaler
+import plotly.express as px
+import folium
+from streamlit_folium import st_folium
 
-# Set the title and favicon that appear in the Browser's tab bar.
-st.set_page_config(
-    page_title='GDP dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
+# ======================
+# JUDUL DASHBOARD
+# ======================
+
+st.title("Dashboard Klasterisasi Pengelolaan Sampah Indonesia")
+
+# ======================
+# UPLOAD FILE
+# ======================
+
+uploaded_file = st.file_uploader(
+    "Upload Dataset CSV",
+    type=["csv"]
 )
 
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
+# ======================
+# JIKA FILE DIUPLOAD
+# ======================
 
-@st.cache_data
-def get_gdp_data():
-    """Grab GDP data from a CSV file.
+if uploaded_file is not None:
 
-    This uses caching to avoid having to read the file every time. If we were
-    reading from an HTTP endpoint instead of a file, it's a good idea to set
-    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
-    """
+    # Baca data
+    data = pd.read_csv(uploaded_file)
 
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
+    # Tampilkan data
+    st.subheader("Data")
+    st.dataframe(data)
 
-    MIN_YEAR = 1960
-    MAX_YEAR = 2022
+    # ======================
+    # PILIH VARIABEL
+    # ======================
 
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
+    fitur = st.multiselect(
+        "Pilih Variabel Clustering",
+        ['X1', 'X2', 'X3', 'X4', 'X5', 'X6'],
+        default=['X1', 'X2', 'X3']
     )
 
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
+    # Cek minimal 2 variabel
+    if len(fitur) < 2:
+        st.warning("Pilih minimal 2 variabel")
+        st.stop()
 
-    return gdp_df
+    # ======================
+    # JUMLAH CLUSTER
+    # ======================
 
-gdp_df = get_gdp_data()
+    k = st.slider(
+        "Jumlah Cluster",
+        min_value=2,
+        max_value=6,
+        value=3
+    )
 
-# -----------------------------------------------------------------------------
-# Draw the actual page
+    # ======================
+    # DATA CLUSTERING
+    # ======================
 
-# Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
+    X = data[fitur]
 
-Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
-notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
-But it's otherwise a great (and did I mention _free_?) source of data.
-'''
+    # Standardisasi data
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
 
-# Add some spacing
-''
-''
+    # ======================
+    # K-MEANS++
+    # ======================
 
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
+    model = KMeans(
+        n_clusters=k,
+        init='k-means++',
+        random_state=42,
+        n_init=10
+    )
 
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
+    # Cluster mulai dari 1
+    data['Cluster'] = model.fit_predict(X_scaled) + 1
 
-countries = gdp_df['Country Code'].unique()
+    # ======================
+    # SILHOUETTE SCORE
+    # ======================
 
-if not len(countries):
-    st.warning("Select at least one country")
+    score = silhouette_score(
+        X_scaled,
+        data['Cluster']
+    )
 
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
+    st.metric(
+        "Silhouette Score",
+        round(score, 3)
+    )
 
-''
-''
-''
+    # ======================
+    # SCATTER PLOT
+    # ======================
 
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
-]
+    st.subheader("Visualisasi Cluster")
 
-st.header('GDP over time', divider='gray')
+    fig = px.scatter(
+        data,
+        x=fitur[0],
+        y=fitur[1],
+        color=data['Cluster'].astype(str),
+        hover_name='Provinsi',
+        title='Scatter Plot Cluster'
+    )
 
-''
+    st.plotly_chart(fig)
 
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
-)
+    # ======================
+    # PETA CLUSTER
+    # ======================
 
-''
-''
+    st.subheader("Peta Cluster Indonesia")
 
+    m = folium.Map(
+        location=[-2, 118],
+        zoom_start=4
+    )
 
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
+    # Warna cluster
+    colors = [
+        'red',
+        'blue',
+        'green',
+        'purple',
+        'orange',
+        'darkred'
+    ]
 
-st.header(f'GDP in {to_year}', divider='gray')
+    # Tambahkan marker
+    for i in range(len(data)):
 
-''
+        cluster_num = int(data.iloc[i]['Cluster']) - 1
 
-cols = st.columns(4)
+        folium.CircleMarker(
+            location=[
+                data.iloc[i]['Latitude'],
+                data.iloc[i]['Longitude']
+            ],
+            radius=8,
+            color=colors[cluster_num],
+            fill=True,
+            fill_color=colors[cluster_num],
+            fill_opacity=0.7,
+            popup=f"""
+            <b>{data.iloc[i]['Provinsi']}</b>
+            <br>
+            Cluster: {data.iloc[i]['Cluster']}
+            """
+        ).add_to(m)
 
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
+    # Tampilkan map
+    st_folium(m, width=1000)
 
-    with col:
-        first_gdp = first_year[first_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[last_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
+    # ======================
+    # HASIL CLUSTERING
+    # ======================
 
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
-        else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
+    st.subheader("Hasil Clustering")
 
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
-        )
+    st.dataframe(data)
+
+else:
+    st.info("Silakan upload file CSV terlebih dahulu")
