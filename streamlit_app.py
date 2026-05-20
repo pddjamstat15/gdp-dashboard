@@ -11,7 +11,20 @@ from streamlit_folium import st_folium
 # JUDUL DASHBOARD
 # ======================
 
+st.set_page_config(
+    page_title="Dashboard Klasterisasi Sampah",
+    layout="wide"
+)
+
 st.title("Dashboard Klasterisasi Pengelolaan Sampah Indonesia")
+
+st.write(
+    """
+    Dashboard ini digunakan untuk melakukan
+    klasterisasi capaian pengelolaan sampah
+    di Indonesia menggunakan metode K-Means++.
+    """
+)
 
 # ======================
 # UPLOAD FILE
@@ -28,11 +41,18 @@ uploaded_file = st.file_uploader(
 
 if uploaded_file is not None:
 
-    # Baca data
+    # ======================
+    # BACA DATA
+    # ======================
+
     data = pd.read_csv(uploaded_file)
 
-    # Tampilkan data
+    # ======================
+    # TAMPILKAN DATA
+    # ======================
+
     st.subheader("Data")
+
     st.dataframe(data)
 
     # ======================
@@ -45,13 +65,13 @@ if uploaded_file is not None:
         default=['X1', 'X2', 'X3']
     )
 
-    # Cek minimal 2 variabel
+    # Minimal 2 variabel
     if len(fitur) < 2:
         st.warning("Pilih minimal 2 variabel")
         st.stop()
 
     # ======================
-    # JUMLAH CLUSTER
+    # PILIH JUMLAH CLUSTER
     # ======================
 
     k = st.slider(
@@ -67,8 +87,12 @@ if uploaded_file is not None:
 
     X = data[fitur]
 
-    # Standardisasi data
+    # ======================
+    # STANDARDISASI DATA
+    # ======================
+
     scaler = StandardScaler()
+
     X_scaled = scaler.fit_transform(X)
 
     # ======================
@@ -78,12 +102,14 @@ if uploaded_file is not None:
     model = KMeans(
         n_clusters=k,
         init='k-means++',
-        random_state=42,
+        random_state=123,
         n_init=10
     )
 
-    # Cluster mulai dari 1
-    data['Cluster'] = model.fit_predict(X_scaled) + 1
+    # Cluster dimulai dari 1
+    data['Cluster'] = (
+        model.fit_predict(X_scaled) + 1
+    )
 
     # ======================
     # SILHOUETTE SCORE
@@ -111,10 +137,14 @@ if uploaded_file is not None:
         y=fitur[1],
         color=data['Cluster'].astype(str),
         hover_name='Provinsi',
-        title='Scatter Plot Cluster'
+        title='Scatter Plot Cluster',
+        height=600
     )
 
-    st.plotly_chart(fig)
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
 
     # ======================
     # PETA CLUSTER
@@ -140,7 +170,9 @@ if uploaded_file is not None:
     # Tambahkan marker
     for i in range(len(data)):
 
-        cluster_num = int(data.iloc[i]['Cluster']) - 1
+        cluster_num = (
+            int(data.iloc[i]['Cluster']) - 1
+        )
 
         folium.CircleMarker(
             location=[
@@ -160,7 +192,11 @@ if uploaded_file is not None:
         ).add_to(m)
 
     # Tampilkan map
-    st_folium(m, width=1000)
+    st_folium(
+        m,
+        width=1200,
+        height=500
+    )
 
     # ======================
     # HASIL CLUSTERING
@@ -170,5 +206,71 @@ if uploaded_file is not None:
 
     st.dataframe(data)
 
+    # ======================
+    # ANGGOTA SETIAP CLUSTER
+    # ======================
+
+    st.subheader(
+        "Anggota Provinsi pada Setiap Cluster"
+    )
+
+    for c in sorted(
+        data['Cluster'].unique()
+    ):
+
+        provinsi_cluster = data[
+            data['Cluster'] == c
+        ]['Provinsi'].tolist()
+
+        st.markdown(
+            f"### Cluster {c}"
+        )
+
+        st.write(
+            ", ".join(provinsi_cluster)
+        )
+
+    # ======================
+    # JUMLAH ANGGOTA CLUSTER
+    # ======================
+
+    st.subheader(
+        "Jumlah Provinsi pada Setiap Cluster"
+    )
+
+    jumlah_cluster = (
+        data['Cluster']
+        .value_counts()
+        .sort_index()
+        .reset_index()
+    )
+
+    jumlah_cluster.columns = [
+        'Cluster',
+        'Jumlah Provinsi'
+    ]
+
+    st.dataframe(jumlah_cluster)
+
+    # ======================
+    # BAR CHART CLUSTER
+    # ======================
+
+    fig_bar = px.bar(
+        jumlah_cluster,
+        x='Cluster',
+        y='Jumlah Provinsi',
+        text='Jumlah Provinsi',
+        title='Jumlah Provinsi per Cluster'
+    )
+
+    st.plotly_chart(
+        fig_bar,
+        use_container_width=True
+    )
+
 else:
-    st.info("Silakan upload file CSV terlebih dahulu")
+
+    st.info(
+        "Silakan upload file CSV terlebih dahulu"
+    )
